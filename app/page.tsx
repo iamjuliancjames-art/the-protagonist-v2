@@ -2,38 +2,51 @@
 import { useState, useRef } from 'react';
 import { AUTHORS } from '@/lib/authors';
 import { StoryMemory } from '@/lib/StoryMemory';
-import { BookOpen, PenTool, Download, RefreshCw } from 'lucide-react';
+import { GameState, GameStats } from '@/lib/GameStats';
+import { Sword, MessageSquare, Eye, Scroll, Heart, Zap, Star } from 'lucide-react';
 
-export default function TheProtagonist() {
+export default function TheProtagonistGame() {
   const [selectedAuthor, setSelectedAuthor] = useState(AUTHORS[0]);
   const [mode, setMode] = useState<'adventure' | 'collaborative'>('adventure');
   const [input, setInput] = useState('');
   const [storyLog, setStoryLog] = useState<Array<{type: string, text: string, author?: string}>>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   
+  // Game State
+  const [gameStats, setGameStats] = useState<GameStats>({
+    health: 100, maxHealth: 100, mana: 50, maxMana: 50, xp: 0, level: 1
+  });
+  const gameLogicRef = useRef(new GameState());
+  
   const memoryRef = useRef(new StoryMemory());
 
-  const handleTurn = async () => {
-    if (!input.trim()) return;
+  const handleAction = async (actionType: string) => {
+    let actionText = "";
+    if (actionType === "attack") actionText = "I draw my weapon and strike!";
+    if (actionType === "talk") actionText = "I try to negotiate with them.";
+    if (actionType === "investigate") actionText = "I examine the surroundings carefully.";
+    if (actionType === "magic") actionText = "I cast a spell to reveal the truth.";
+
+    setInput(actionText);
+    // Automatically trigger turn
+    setTimeout(() => handleTurn(actionText), 100);
+  };
+
+  const handleTurn = async (userActionOverride?: string) => {
+    const userAction = userActionOverride || input;
+    if (!userAction.trim()) return;
     
-    const userAction = input;
-    setInput('');
+    setInput(''); // Clear input
     setIsGenerating(true);
 
-    // 1. Add user input to memory
+    // 1. Add user input
     memoryRef.current.addNode(userAction, mode === 'collaborative' ? 'user_writing' : 'user_action');
-    
-    // Update UI with user action
-    setStoryLog(prev => [...prev, { 
-      type: mode === 'collaborative' ? 'user_writing' : 'user_action', 
-      text: userAction 
-    }]);
+    setStoryLog(prev => [...prev, { type: 'user_action', text: userAction }]);
 
     // 2. Get Context
     const context = memoryRef.current.getContext(userAction);
 
     if (mode === 'adventure') {
-      // 3. Generate AI Response
       try {
         const res = await fetch('/api/continue', {
           method: 'POST',
@@ -47,177 +60,139 @@ export default function TheProtagonist() {
             systemPrompt: selectedAuthor.systemPrompt
           }),
         });
-        
         const data = await res.json();
         
-        // 4. Add AI response to memory and UI
         if (data.text) {
+            // 3. Update Game Stats based on story result
+            gameLogicRef.current.processResponse(data.text);
+            setGameStats({...gameLogicRef.current.stats});
+
+            // Check Level Up
+            if (gameLogicRef.current.checkLevelUp()) {
+                alert("LEVEL UP! You are now stronger.");
+            }
+
             memoryRef.current.addNode(data.text, 'narrative');
-            setStoryLog(prev => [...prev, { 
-            type: 'narrative', 
-            text: data.text, 
-            author: data.authorName 
-            }]);
+            setStoryLog(prev => [...prev, { type: 'narrative', text: data.text, author: data.authorName }]);
         }
       } catch (e) {
         console.error(e);
       }
     }
-
     setIsGenerating(false);
   };
 
-  const handleExport = () => {
-    const fullText = `THE PROTAGONIST\nStyle: ${selectedAuthor.name}\n\n` + memoryRef.current.getFullStory();
-    const blob = new Blob([fullText], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `the-protagonist-${Date.now()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleReset = () => {
-    if(confirm("Clear current story?")) {
-      memoryRef.current.clear();
-      setStoryLog([]);
-    }
-  };
-
   return (
-    <main className="min-h-screen bg-stone-900 text-stone-200 font-serif selection:bg-amber-500 selection:text-black">
-      <div className="max-w-3xl mx-auto p-6 min-h-screen flex flex-col">
-        
-        {/* Header / Controls */}
-        <header className="mb-8 pb-6 border-b border-stone-700">
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <h1 className="text-4xl font-bold tracking-tighter text-amber-500 mb-2">The Protagonist</h1>
-              <p className="text-stone-400 text-sm">An infinite adventure generator</p>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={handleReset} className="p-2 hover:bg-stone-800 rounded text-stone-400" title="Reset Story">
-                <RefreshCw size={20} />
-              </button>
-              <button onClick={handleExport} className="p-2 hover:bg-stone-800 rounded text-amber-500" title="Export to Markdown">
-                <Download size={20} />
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-xs uppercase tracking-widest text-stone-500 mb-2">Narrative Voice</label>
-              <div className="flex flex-wrap gap-2">
-                {AUTHORS.map(author => (
-                  <button
-                    key={author.id}
-                    onClick={() => setSelectedAuthor(author)}
-                    className={`px-3 py-1 text-sm border rounded transition-colors ${
-                      selectedAuthor.id === author.id 
-                        ? 'border-amber-500 bg-amber-500/10 text-amber-500' 
-                        : 'border-stone-700 hover:border-stone-500'
-                    }`}
-                  >
-                    {author.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-xs uppercase tracking-widest text-stone-500 mb-2">Mode</label>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setMode('adventure')}
-                  className={`flex-1 py-2 text-sm font-mono border rounded flex items-center justify-center gap-2 ${
-                    mode === 'adventure' 
-                      ? 'border-amber-500 bg-amber-500/10 text-amber-500' 
-                      : 'border-stone-700 hover:border-stone-500'
-                  }`}
-                >
-                  <BookOpen size={16} /> Adventure
-                </button>
-                <button
-                  onClick={() => setMode('collaborative')}
-                  className={`flex-1 py-2 text-sm font-mono border rounded flex items-center justify-center gap-2 ${
-                    mode === 'collaborative' 
-                      ? 'border-amber-500 bg-amber-500/10 text-amber-500' 
-                      : 'border-stone-700 hover:border-stone-500'
-                  }`}
-                >
-                  <PenTool size={16} /> Co-Write
-                </button>
-              </div>
-            </div>
-          </div>
-          <p className="text-xs text-stone-500 italic">"{selectedAuthor.description}"</p>
-        </header>
-
-        {/* Story Feed */}
-        <div className="flex-1 overflow-y-auto space-y-8 mb-8 pr-2 custom-scroll">
-          {storyLog.length === 0 && (
-            <div className="text-center text-stone-600 mt-20">
-              <p className="text-2xl mb-2">The page is blank.</p>
-              <p>Begin by directing the protagonist.</p>
-            </div>
-          )}
-
-          {storyLog.map((entry, idx) => (
-            <div key={idx} className={`animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-              {entry.type === 'user_action' && (
-                <div className="pl-4 border-l-2 border-amber-500/50 text-stone-400 italic text-sm mb-2">
-                  You choose to: {entry.text}
-                </div>
-              )}
-              {entry.type === 'user_writing' && (
-                <div className="pl-4 border-l-2 border-purple-500/50 text-purple-300 text-sm mb-2">
-                  You wrote: {entry.text}
-                </div>
-              )}
-              {entry.type === 'narrative' && (
-                <div className="prose prose-invert prose-stone max-w-none">
-                  <p className="text-lg leading-relaxed first-letter:text-3xl first-letter:font-bold first-letter:text-amber-500 first-letter:mr-1 first-letter:float-left">
-                    {entry.text}
-                  </p>
-                  <span className="text-xs text-stone-600 block mt-2 text-right">— {entry.author}</span>
-                </div>
-              )}
-            </div>
-          ))}
+    <main className="min-h-screen bg-slate-950 text-slate-200 font-mono selection:bg-amber-500 selection:text-black overflow-hidden flex flex-col">
+      
+      {/* --- GAME HUD (Top) --- */}
+      <div className="bg-slate-900 border-b border-slate-700 p-4 shadow-xl z-10">
+        <div className="max-w-5xl mx-auto flex justify-between items-center">
           
-          {isGenerating && (
-            <div className="text-stone-500 text-sm animate-pulse flex items-center gap-2">
-              <span>Writing</span>
-              <span className="w-1 h-1 bg-amber-500 rounded-full animate-bounce"></span>
-              <span className="w-1 h-1 bg-amber-500 rounded-full animate-bounce delay-75"></span>
-              <span className="w-1 h-1 bg-amber-500 rounded-full animate-bounce delay-150"></span>
+          {/* Stats */}
+          <div className="flex gap-6 text-sm">
+            <div className="flex items-center gap-2 text-red-400">
+              <Heart size={16} /> 
+              <span>{gameStats.health}/{gameStats.maxHealth}</span>
             </div>
-          )}
+            <div className="flex items-center gap-2 text-blue-400">
+              <Zap size={16} /> 
+              <span>{gameStats.mana}/{gameStats.maxMana}</span>
+            </div>
+            <div className="flex items-center gap-2 text-yellow-400">
+              <Star size={16} /> 
+              <span>Lvl {gameStats.level} (XP: {gameStats.xp})</span>
+            </div>
+          </div>
+
+          {/* Author Selector (Narrative Style) */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 uppercase">Style:</span>
+            <select 
+              value={selectedAuthor.id}
+              onChange={(e) => setSelectedAuthor(AUTHORS.find(a => a.id === e.target.value)!)}
+              className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs focus:outline-none focus:border-amber-500"
+            >
+              {AUTHORS.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
+
+        </div>
+      </div>
+
+      {/* --- MAIN GAME AREA --- */}
+      <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full p-4 gap-4">
+        
+        {/* Story Log (The "Screen") */}
+        <div className="flex-1 bg-slate-900/50 border border-slate-800 rounded-lg p-6 overflow-y-auto custom-scroll relative">
+           {/* Background FX */}
+           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] opacity-10 pointer-events-none"></div>
+           
+           <div className="relative z-10 space-y-6">
+            {storyLog.length === 0 && (
+              <div className="text-center text-slate-500 mt-10 animate-pulse">
+                <p>Initializing World...</p>
+                <p className="text-xs mt-2">Select an action below to begin.</p>
+              </div>
+            )}
+
+            {storyLog.map((entry, idx) => (
+              <div key={idx} className={`opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]`} style={{animationDelay: `${idx * 0.1}s`}}>
+                {entry.type === 'user_action' && (
+                  <div className="text-right text-amber-500/80 text-sm mb-1 font-bold">
+                    > {entry.text}
+                  </div>
+                )}
+                {entry.type === 'narrative' && (
+                  <div className="bg-slate-800/80 p-4 rounded-l-lg border-l-4 border-amber-600 shadow-lg">
+                    <p className="text-slate-200 leading-relaxed">{entry.text}</p>
+                    <div className="text-[10px] text-slate-500 mt-2 text-right uppercase tracking-widest">— {entry.author}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {isGenerating && (
+              <div className="text-amber-500 text-sm animate-pulse font-bold">
+                The world is shifting...
+              </div>
+            )}
+           </div>
         </div>
 
-        {/* Input Area */}
-        <div className="sticky bottom-0 bg-stone-900 pt-4 border-t border-stone-800">
-          <form onSubmit={(e) => { e.preventDefault(); handleTurn(); }} className="relative group">
-            <textarea
+        {/* --- ACTION BAR (Bottom) --- */}
+        <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-2xl">
+          
+          {/* Quick Actions */}
+          <div className="flex gap-2 mb-3 justify-center">
+            <button onClick={() => handleAction('attack')} className="flex-1 bg-red-900/30 hover:bg-red-900/50 border border-red-800 text-red-200 py-2 rounded flex flex-col items-center justify-center transition-all group">
+              <Sword size={20} className="mb-1 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] uppercase font-bold">Attack</span>
+            </button>
+            <button onClick={() => handleAction('talk')} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 text-blue-200 py-2 rounded flex flex-col items-center justify-center transition-all group">
+              <MessageSquare size={20} className="mb-1 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] uppercase font-bold">Talk</span>
+            </button>
+            <button onClick={() => handleAction('investigate')} className="flex-1 bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-800 text-emerald-200 py-2 rounded flex flex-col items-center justify-center transition-all group">
+              <Eye size={20} className="mb-1 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] uppercase font-bold">Investigate</span>
+            </button>
+            <button onClick={() => handleAction('magic')} className="flex-1 bg-purple-900/30 hover:bg-purple-900/50 border border-purple-800 text-purple-200 py-2 rounded flex flex-col items-center justify-center transition-all group">
+              <Zap size={20} className="mb-1 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] uppercase font-bold">Magic</span>
+            </button>
+          </div>
+
+          {/* Custom Input */}
+          <form onSubmit={(e) => { e.preventDefault(); handleTurn(); }} className="relative">
+            <input
+              type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={mode === 'adventure' ? "What does the protagonist do next?" : "Write the next passage yourself..."}
-              className="w-full bg-stone-800 text-stone-100 rounded-lg p-4 pr-14 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none h-24 shadow-lg placeholder-stone-500"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleTurn();
-                }
-              }}
+              placeholder="Or type a custom action..."
+              className="w-full bg-slate-950 text-slate-100 rounded-lg py-3 px-4 pr-12 focus:outline-none focus:ring-1 focus:ring-amber-500 placeholder-slate-600 border border-slate-800"
             />
-            <button 
-              type="submit" 
-              disabled={isGenerating || !input.trim()}
-              className="absolute right-3 bottom-3 p-2 bg-amber-600 hover:bg-amber-500 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <PenTool size={18} />
+            <button type="submit" className="absolute right-2 top-2 p-1.5 bg-amber-600 rounded text-white hover:bg-amber-500 transition-colors">
+              <Scroll size={16} />
             </button>
           </form>
         </div>

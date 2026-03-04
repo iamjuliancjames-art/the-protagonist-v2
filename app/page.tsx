@@ -140,7 +140,7 @@ export default function TheProtagonistGame() {
               <div key={idx} className={`opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]`} style={{animationDelay: `${idx * 0.1}s`}}>
                 {entry.type === 'user_action' && (
                   <div className="text-right text-amber-500/80 text-sm mb-1 font-bold">
-                    > {entry.text}
+                    {">"} {entry.text}
                   </div>
                 )}
                 {entry.type === 'narrative' && (
